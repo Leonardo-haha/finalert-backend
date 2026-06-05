@@ -72,7 +72,7 @@ async def broadcast_market_updates():
         try:
             market_data = await market_service.get_all_prices()
             await manager.broadcast_market_data(market_data)
-            await asyncio.sleep(10)  # Update every 10 seconds
+            await asyncio.sleep(30)  # Update every 30 seconds
         except Exception as e:
             print(f"Broadcast error: {e}")
             await asyncio.sleep(10)
