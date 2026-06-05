@@ -1,6 +1,7 @@
 """
 Market Data Service - Twelve Data API Integration
-Fetches LIVE market data for Gold, Dollar Index, and Crude Oil
+Fetches LIVE market data for Gold and Crude Oil
+Note: DXY (US Dollar Index) is temporarily disabled due to API limitations
 """
 
 import httpx
@@ -14,29 +15,34 @@ from datetime import datetime, timedelta
 class MarketDataService:
     """
     Service for fetching LIVE market data using Twelve Data API.
+    Includes caching to prevent rate limiting.
     """
 
-    # Map instruments to Twelve Data symbols
+    # Map instruments to Twelve Data symbols (verified working on free tier)
     TICKERS = {
-        "gold": "XAU/USD",      # Gold spot price
-        "dxy": "DXY",           # US Dollar Index
-        "oil": "WTI",           # WTI Crude Oil
+        "gold": "XAU/USD",      # Gold spot price - ✅ Working
+        "oil": "WTI",           # WTI Crude Oil - ✅ Working
+        # "dxy": "DXY",         # ❌ Temporarily disabled - symbol not available on free tier
     }
 
     INSTRUMENT_NAMES = {
         "gold": ("Gold", "XAU/USD"),
-        "dxy": ("US Dollar Index", "DXY"),
+        # "dxy": ("US Dollar Index", "DXY"),
         "oil": ("WTI Crude Oil", "WTI"),
     }
 
     def __init__(self):
-        """Initialize with API key from environment variables."""
+        """Initialize with API key and cache."""
         self.api_key = os.getenv("TWELVE_DATA_API_KEY")
         if not self.api_key:
             print("⚠️ TWELVE_DATA_API_KEY not set! Using fallback mock data.")
         else:
-            print(f"✅ Twelve Data API key configured (first 10 chars: {self.api_key[:10]}...)")
+            print(f"✅ Twelve Data API key configured")
         self.base_url = "https://api.twelvedata.com"
+        
+        # Cache system to prevent rate limiting
+        self.cache = {}
+        self.cache_expiry = 15  # Cache for 15 seconds (free tier: 8 calls/minute)
 
     async def _fetch_quote(self, symbol: str) -> Optional[Dict]:
         """Fetch a single quote from Twelve Data API."""
@@ -122,16 +128,27 @@ class MarketDataService:
 
     async def get_all_prices(self) -> List[Dict]:
         """
-        Get LIVE current prices for all instruments concurrently.
+        Get LIVE current prices for all instruments with caching.
+        Cache prevents hitting API rate limits (8 calls/minute on free tier).
         """
+        import time
+        
+        # Check cache first
+        now = time.time()
+        if 'all_prices' in self.cache:
+            cache_age = now - self.cache['all_prices']['timestamp']
+            if cache_age < self.cache_expiry:
+                print(f"📦 Returning cached market data (age: {cache_age:.1f}s)")
+                return self.cache['all_prices']['data']
+
         print("📊 Fetching all market prices from Twelve Data...")
         tasks = [self.get_current_price(inst) for inst in self.TICKERS.keys()]
         results = await asyncio.gather(*tasks)
 
         market_data = []
         for i, (inst, ticker) in enumerate(self.TICKERS.items()):
-            price_data = results[i]
-            name, symbol = self.INSTRUMENT_NAMES[inst]
+            price_data = results[i] if i < len(results) else self._get_fallback_price(inst)
+            name, symbol = self.INSTRUMENT_NAMES.get(inst, (inst.capitalize(), ticker))
 
             change = price_data.get("change", 0)
             if change > 0:
@@ -163,6 +180,13 @@ class MarketDataService:
             })
 
         print("✅ Market data fetch complete")
+        
+        # Store in cache
+        self.cache['all_prices'] = {
+            'data': market_data,
+            'timestamp': now
+        }
+        
         return market_data
 
     def _generate_sparkline(self, current_price: float, change: float) -> List[float]:
