@@ -441,6 +441,9 @@ class NewsFetcher:
         Fetch news from ALL configured sources concurrently.
         Includes Middle East news and Trump tracker.
         """
+	print("=" * 50)
+    	print("🚨🚨🚨 FETCH_ALL METHOD IS BEING CALLED 🚨🚨🚨")
+   	print("=" * 50)
         tasks = [
             self.fetch_newsapi(),
             self.fetch_baidu_news(),
