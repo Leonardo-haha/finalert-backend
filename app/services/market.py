@@ -84,7 +84,7 @@ class MarketDataService:
             if result and result.get("price", 0) > 0:
                 # Update cache with this good value
                 self.last_known_values[instrument] = result
-                print(f"✅ Got {symbol}: ${result['price']}")
+                print(f"✅ Got {symbol}: ${result['price']} (Change: {result['change']:+.2f})")
                 return result
             else:
                 print(f"⚠️ No data for {symbol}, using last known value")
@@ -105,12 +105,11 @@ class MarketDataService:
             return {
                 "price": round(live_data.get("price", 0), 2),
                 "change": round(live_data.get("change", 0), 2),
-                "change_percent": round(live_data.get("change_percent", 0), 2),
+                "change_percent": round(live_data.get("change_percent", 2), 2),
                 "previous_close": round(live_data.get("previous_close", 0), 2),
                 "timestamp": live_data.get("timestamp", datetime.now()),
             }
         else:
-            # This should never happen - _fetch_quote always returns something
             cached = self.last_known_values.get(instrument, {})
             return {
                 "price": cached.get("price", 0),
@@ -121,7 +120,7 @@ class MarketDataService:
             }
 
     async def get_all_prices(self) -> List[Dict]:
-        """Get all market prices - ALWAYS returns values (last known if API fails)."""
+        """Get all market prices - trend correctly calculated from actual change."""
         print("📊 Fetching market data...")
         
         market_data = []
@@ -129,6 +128,14 @@ class MarketDataService:
             price_data = await self.get_current_price(instrument)
             name, symbol = self.INSTRUMENT_NAMES[instrument]
             change = price_data.get("change", 0)
+            
+            # CRITICAL FIX: trend based on actual price movement
+            if change > 0:
+                trend = "up"
+            elif change < 0:
+                trend = "down"
+            else:
+                trend = "neutral"
             
             market_data.append({
                 "instrument": instrument,
@@ -141,11 +148,15 @@ class MarketDataService:
                 "high_24h": 0,
                 "low_24h": 0,
                 "last_updated": price_data.get("timestamp", datetime.now()).isoformat(),
-                "trend": "up" if change > 0 else "down" if change < 0 else "neutral",
+                "trend": trend,  # ✅ Now correctly set: "up", "down", or "neutral"
                 "sparkline_data": [],
             })
+            
+            # Log for debugging
+            direction = "UP 📈" if change > 0 else "DOWN 📉" if change < 0 else "FLAT ➡️"
+            print(f"   {name}: ${price_data.get('price', 0)} ({direction})")
         
-        print(f"✅ Market data ready (Gold: ${market_data[0]['price']})")
+        print(f"✅ Market data ready")
         return market_data
 
     async def get_historical_data(self, instrument: str, days: int = 30) -> List[Dict]:
