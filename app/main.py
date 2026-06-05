@@ -20,24 +20,23 @@ import json
 from app.models.database import init_db
 from app.routers import news_router, market_router, alerts_router
 from app.core.config import settings
-from app.websocket_manager import manager, broadcast_market_updates
+from app.websocket_manager import manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
     # Startup
     init_db()
     print("FinAlert API started")
-    print(f"Database initialized at: {settings.database_url}")
+    print("WebSocket auto-updates DISABLED (manual refresh only)")
     
-    # Start background broadcast task for WebSockets
-    broadcast_task = asyncio.create_task(broadcast_market_updates())
+    # Start background broadcast task - DISABLED for POC
+    # broadcast_task = asyncio.create_task(broadcast_market_updates())
     
     yield
     
     # Shutdown
-    broadcast_task.cancel()
+    # broadcast_task.cancel()
     print("FinAlert API shutdown")
 
 
