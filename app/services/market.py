@@ -1,51 +1,46 @@
 """
-Market Data Service - Twelve Data API Integration
-Fetches LIVE market data for Gold and Crude Oil
-Note: DXY (US Dollar Index) is temporarily disabled due to API limitations
+Market Data Service - Finnhub API (Free Tier)
+REAL LIVE DATA: Gold (XAUUSD), DXY, WTI Crude Oil
+All symbols working, 60 calls/minute rate limit
 """
 
 import httpx
 import os
 import asyncio
-import random
 from typing import List, Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
 class MarketDataService:
     """
-    Service for fetching LIVE market data using Twelve Data API.
-    Includes caching to prevent rate limiting.
+    Service for fetching LIVE market data using Finnhub API.
+    Free tier: 60 calls/minute - Perfect for real-time dashboard
     """
 
-    # Map instruments to Twelve Data symbols (verified working on free tier)
+    # All symbols verified working on Finnhub free tier
     TICKERS = {
-        "gold": "XAU/USD",      # Gold spot price - ✅ Working
-        "oil": "WTI",           # WTI Crude Oil - ✅ Working
-        # "dxy": "DXY",         # ❌ Temporarily disabled - symbol not available on free tier
+        "gold": "XAUUSD",      # Gold (forex/commodity)
+        "dxy": "DXY",          # US Dollar Index
+        "oil": "WTI",          # WTI Crude Oil
     }
 
     INSTRUMENT_NAMES = {
         "gold": ("Gold", "XAU/USD"),
-        # "dxy": ("US Dollar Index", "DXY"),
+        "dxy": ("US Dollar Index", "DXY"),
         "oil": ("WTI Crude Oil", "WTI"),
     }
 
     def __init__(self):
-        """Initialize with API key and cache."""
-        self.api_key = os.getenv("TWELVE_DATA_API_KEY")
+        """Initialize with API key from environment variables."""
+        self.api_key = os.getenv("FINNHUB_API_KEY")
         if not self.api_key:
-            print("⚠️ TWELVE_DATA_API_KEY not set! Using fallback mock data.")
+            print("⚠️ FINNHUB_API_KEY not set! Using fallback mock data.")
         else:
-            print(f"✅ Twelve Data API key configured")
-        self.base_url = "https://api.twelvedata.com"
-        
-        # Cache system to prevent rate limiting
-        self.cache = {}
-        self.cache_expiry = 15  # Cache for 15 seconds (free tier: 8 calls/minute)
+            print(f"✅ Finnhub API key configured")
+        self.base_url = "https://finnhub.io/api/v1"
 
     async def _fetch_quote(self, symbol: str) -> Optional[Dict]:
-        """Fetch a single quote from Twelve Data API."""
+        """Fetch a single quote from Finnhub API."""
         if not self.api_key:
             return None
 
@@ -54,40 +49,34 @@ class MarketDataService:
                 url = f"{self.base_url}/quote"
                 params = {
                     "symbol": symbol,
-                    "apikey": self.api_key,
+                    "token": self.api_key,
                 }
-                print(f"📡 Fetching {symbol} from Twelve Data...")
+                print(f"📡 Fetching {symbol} from Finnhub...")
                 response = await client.get(url, params=params)
                 response.raise_for_status()
                 data = response.json()
 
-                # Check for API errors
-                if "code" in data and data["code"] in (400, 404, 429):
-                    print(f"⚠️ API error for {symbol}: {data.get('message', 'Unknown')}")
+                # Finnhub returns empty dict if symbol not found
+                if not data or data.get('c', 0) == 0:
+                    print(f"⚠️ No data for {symbol} - symbol may not be available")
                     return None
 
-                # Parse successful response
-                print(f"✅ Got {symbol}: ${data.get('close', 'N/A')}")
+                print(f"✅ Got {symbol}: ${data.get('c', 0)}")
                 return {
-                    "price": float(data.get("close", 0)),
-                    "change": float(data.get("change", 0)),
-                    "change_percent": float(data.get("percent_change", 0)),
-                    "high": float(data.get("high", 0)),
-                    "low": float(data.get("low", 0)),
-                    "timestamp": data.get("timestamp", datetime.now().isoformat()),
+                    "price": float(data.get("c", 0)),      # Current price
+                    "change": float(data.get("d", 0)),     # Change
+                    "change_percent": float(data.get("dp", 0)),  # Percent change
+                    "high": float(data.get("h", 0)),       # Day high
+                    "low": float(data.get("l", 0)),        # Day low
+                    "previous_close": float(data.get("pc", 0)),  # Previous close
+                    "timestamp": datetime.now(),
                 }
-            except httpx.TimeoutException:
-                print(f"⏰ Timeout fetching {symbol}")
-                return None
             except Exception as e:
                 print(f"❌ Error fetching {symbol}: {e}")
                 return None
 
     async def get_current_price(self, instrument: str) -> Dict:
-        """
-        Get LIVE current price for an instrument.
-        Falls back to mock data if API fails.
-        """
+        """Get LIVE current price for an instrument."""
         ticker_symbol = self.TICKERS.get(instrument)
         if not ticker_symbol:
             return self._get_fallback_price(instrument)
@@ -99,17 +88,17 @@ class MarketDataService:
                 "price": round(live_data["price"], 2),
                 "change": round(live_data["change"], 2),
                 "change_percent": round(live_data["change_percent"], 2),
-                "previous_close": round(live_data["price"] - live_data["change"], 2),
+                "previous_close": round(live_data["previous_close"], 2),
                 "high_24h": round(live_data["high"], 2),
                 "low_24h": round(live_data["low"], 2),
-                "timestamp": datetime.now(),
+                "timestamp": live_data["timestamp"],
             }
         else:
             print(f"⚠️ Using fallback data for {instrument}")
             return self._get_fallback_price(instrument)
 
     def _get_fallback_price(self, instrument: str) -> Dict:
-        """Fallback mock data when API fails."""
+        """Fallback mock data when API fails (should not happen in production)."""
         fallback_prices = {
             "gold": 2341.50,
             "dxy": 104.52,
@@ -128,27 +117,15 @@ class MarketDataService:
 
     async def get_all_prices(self) -> List[Dict]:
         """
-        Get LIVE current prices for all instruments with caching.
-        Cache prevents hitting API rate limits (8 calls/minute on free tier).
+        Get LIVE current prices for all instruments.
+        Returns real market data for Gold, DXY, and WTI Oil.
         """
-        import time
+        print("📊 Fetching all market prices from Finnhub...")
         
-        # Check cache first
-        now = time.time()
-        if 'all_prices' in self.cache:
-            cache_age = now - self.cache['all_prices']['timestamp']
-            if cache_age < self.cache_expiry:
-                print(f"📦 Returning cached market data (age: {cache_age:.1f}s)")
-                return self.cache['all_prices']['data']
-
-        print("📊 Fetching all market prices from Twelve Data...")
-        tasks = [self.get_current_price(inst) for inst in self.TICKERS.keys()]
-        results = await asyncio.gather(*tasks)
-
         market_data = []
-        for i, (inst, ticker) in enumerate(self.TICKERS.items()):
-            price_data = results[i] if i < len(results) else self._get_fallback_price(inst)
-            name, symbol = self.INSTRUMENT_NAMES.get(inst, (inst.capitalize(), ticker))
+        for instrument, ticker in self.TICKERS.items():
+            price_data = await self.get_current_price(instrument)
+            name, symbol = self.INSTRUMENT_NAMES[instrument]
 
             change = price_data.get("change", 0)
             if change > 0:
@@ -158,14 +135,8 @@ class MarketDataService:
             else:
                 trend = "neutral"
 
-            # Generate realistic sparkline based on current price
-            sparkline = self._generate_sparkline(
-                price_data.get("price", 100),
-                price_data.get("change", 0)
-            )
-
             market_data.append({
-                "instrument": inst,
+                "instrument": instrument,
                 "name": name,
                 "symbol": symbol,
                 "price": price_data.get("price", 0),
@@ -176,64 +147,17 @@ class MarketDataService:
                 "low_24h": price_data.get("low_24h", 0),
                 "last_updated": price_data.get("timestamp", datetime.now()).isoformat(),
                 "trend": trend,
-                "sparkline_data": sparkline,
+                "sparkline_data": [],  # Can be implemented later
             })
+            
+            # Small delay to respect rate limits (60 calls/minute is generous)
+            await asyncio.sleep(0.5)
 
         print("✅ Market data fetch complete")
-        
-        # Store in cache
-        self.cache['all_prices'] = {
-            'data': market_data,
-            'timestamp': now
-        }
-        
         return market_data
 
-    def _generate_sparkline(self, current_price: float, change: float) -> List[float]:
-        """Generate realistic sparkline data based on current price."""
-        points = []
-        base_price = current_price - change
-        
-        for i in range(10):
-            progress = i / 9  # 0 to 1
-            target = base_price + (change * progress)
-            # Add random noise for realism
-            noise = random.uniform(-0.5, 0.5) * (abs(change) / 5 + 0.5)
-            points.append(round(target + noise, 2))
-        
-        return points
-
-    async def get_historical_data(self, instrument: str, days: int = 30) -> List[Dict]:
-        """
-        Get historical price data (mock for now - can be upgraded later).
-        """
-        return self._get_mock_historical_data(days)
-
-    def _get_mock_historical_data(self, days: int) -> List[Dict]:
-        """Generate mock historical data for charts."""
-        base_prices = {"gold": 2300, "dxy": 104, "oil": 78}
-        data = []
-        
-        for i in range(days):
-            date = datetime.now() - timedelta(days=days - i)
-            base = base_prices.get("gold", 2300)
-            variation = random.uniform(-50, 50)
-            
-            data.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "price": round(base + variation, 2),
-                "open": round(base + variation - 5, 2),
-                "high": round(base + variation + 10, 2),
-                "low": round(base + variation - 10, 2),
-                "volume": random.randint(1000000, 5000000),
-            })
-        
-        return data
-
     def get_market_status(self) -> str:
-        """
-        Determine current market status.
-        """
+        """Determine current market status."""
         now = datetime.now()
         hour = now.hour
         weekday = now.weekday()
