@@ -8,6 +8,20 @@ engine = create_engine(settings.database_url, connect_args={"check_same_thread":
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+def init_db():
+    """Initialize database - FORCE RECREATE TABLES"""
+    from app.models import NewsArticle, Alert, AlertConfig
+    
+    # Drop all tables first (clears all cached data)
+    Base.metadata.drop_all(bind=engine)
+    print("✅ Dropped all existing tables")
+    
+    # Create fresh tables
+    Base.metadata.create_all(bind=engine)
+    print("✅ Created fresh tables")
+    
+    # Your existing initialization code...
+
 
 class NewsArticle(Base):
     """Database model for news articles."""
@@ -33,6 +47,9 @@ class NewsArticle(Base):
     # Metadata
     author = Column(String(200), nullable=True)
     external_id = Column(String(200), nullable=True, unique=True)
+
+
+
 
 
 class AlertConfig(Base):
