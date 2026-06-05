@@ -21,7 +21,7 @@ class MarketDataService:
     TICKERS = {
         "gold": "XAUUSD",      # Gold (forex/commodity)
         "dxy": "DXY",          # US Dollar Index
-        "oil": "WTI",          # WTI Crude Oil
+        "oil": "CL",          # WTI Crude Oil
     }
 
     INSTRUMENT_NAMES = {
